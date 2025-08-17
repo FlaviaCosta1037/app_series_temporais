@@ -7,7 +7,6 @@ import matplotlib.pyplot as plt
 from statsmodels.tsa.arima.model import ARIMA
 from statsmodels.tsa.statespace.sarimax import SARIMAX
 from sklearn.svm import SVR
-from pmdarima import auto_arima
 from sklearn.metrics import mean_absolute_percentage_error
 from services.auth import login, signup, login_google, logout, supabase
 from utils.preprocessing import validate_and_prepare
@@ -196,18 +195,20 @@ if uploaded_file:
     if st.button("Fazer Previsão"):
         n_forecast = 30
 
-        # ARIMA
+        # ARIMA simples
         try:
-            arima_model = auto_arima(ts[col_target], seasonal=False, stepwise=True)
-            arima_pred = arima_model.predict(n_periods=n_forecast)
+            arima_model = ARIMA(ts[col_target], order=(1,1,1))  # ajuste (p,d,q) manualmente
+            arima_fit = arima_model.fit()
+            arima_pred = arima_fit.forecast(steps=n_forecast)
         except Exception as e:
             st.warning(f"ARIMA falhou: {e}")
             arima_pred = np.zeros(n_forecast)
 
         # SARIMA
         try:
-            sarima_model = auto_arima(ts[col_target], seasonal=True, m=12, stepwise=True)
-            sarima_pred = sarima_model.predict(n_periods=n_forecast)
+            sarima_model = SARIMAX(ts[col_target], order=(1,1,1), seasonal_order=(1,1,1,12))
+            sarima_fit = sarima_model.fit(disp=False)
+            sarima_pred = sarima_fit.forecast(steps=n_forecast)
         except Exception as e:
             st.warning(f"SARIMA falhou: {e}")
             sarima_pred = np.zeros(n_forecast)
