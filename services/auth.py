@@ -19,7 +19,7 @@ def get_redirect_url():
         return "http://localhost:8501"
 
     # Se for produção → usa variável de ambiente (melhor prática)
-    return os.getenv("APP_URL", "https://seriestemporais.streamlit.app")
+    return os.getenv("APP_URL", "https://appseriestemporais.streamlit.app")
 
 def signup(email: str, password: str):
     try:
