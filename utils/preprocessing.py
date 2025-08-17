@@ -1,32 +1,39 @@
 # utils/preprocessing.py
 import pandas as pd
 
-REQUIRED_COLS = ["data", "target"]
-
-def validate_and_prepare(df: pd.DataFrame):
+def validate_and_prepare(df, col_data, col_target, date_format=None):
     """
-    Valida e prepara a base de dados para os modelos de previsão.
-    Retorna: (df_preparado, mensagem_erro)
+    Valida e prepara os dados da série temporal.
+    - col_data: nome da coluna de datas
+    - col_target: nome da coluna numérica
+    - date_format: formato da data (ex: "%d/%m/%Y"). Se None, tenta converter automaticamente
     """
-    # 1. Verificar se as colunas obrigatórias existem
-    if not all(col in df.columns for col in REQUIRED_COLS):
-        return None, f"⚠️ Sua base precisa ter as colunas: {REQUIRED_COLS}"
+    required_cols = [col_data, col_target]
 
-    # 2. Converter coluna data
+    # Verifica se as colunas existem
+    for col in required_cols:
+        if col not in df.columns:
+            return None, f"⚠️ Sua base precisa ter as colunas: {required_cols}, mas as colunas são: {list(df.columns)}"
+
+    # Converte a coluna de data
     try:
-        df["data"] = pd.to_datetime(df["data"], errors="coerce")
-    except Exception:
-        return None, "⚠️ Não foi possível converter a coluna 'data' para datas."
+        if date_format:
+            df[col_data] = pd.to_datetime(df[col_data], format=date_format, errors="coerce")
+        else:
+            df[col_data] = pd.to_datetime(df[col_data], errors="coerce")  # sem infer_datetime_format
+    except Exception as e:
+        return None, f"Erro ao converter a coluna de data: {e}"
 
-    # 3. Checar se tem datas inválidas
-    if df["data"].isna().any():
-        return None, "⚠️ Existem valores inválidos na coluna 'data'."
+    # Verifica datas inválidas
+    if df[col_data].isna().any():
+        return None, f"Algumas datas na coluna '{col_data}' são inválidas. Verifique o formato."
 
-    # 4. Checar se target é numérico
-    if not pd.api.types.is_numeric_dtype(df["target"]):
-        return None, "⚠️ A coluna 'target' precisa ser numérica (int ou float)."
+    # Converte coluna target para numérico
+    df[col_target] = pd.to_numeric(df[col_target], errors='coerce')
+    if df[col_target].isna().any():
+        return None, f"Alguns valores na coluna '{col_target}' não são numéricos."
 
-    # 5. Ordenar por data
-    df = df.sort_values("data").reset_index(drop=True)
+    # Ordena por data
+    df = df.sort_values(col_data).reset_index(drop=True)
 
     return df, None
