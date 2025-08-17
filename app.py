@@ -1,7 +1,6 @@
 # app.py
 import streamlit as st
 import pandas as pd
-import io
 import requests
 import numpy as np
 import matplotlib.pyplot as plt
@@ -132,7 +131,6 @@ if st.session_state["user"] is None:
                 st.session_state["show_signup"] = False
                 st.experimental_rerun()
 
-        # Link para redefinir senha
         st.markdown("[Redefinir senha](#)")
 
     st.stop()
@@ -156,7 +154,6 @@ if uploaded_file:
         try:
             df = pd.read_csv(uploaded_file)
             if len(df.columns) == 1:
-                # se só tem 1 coluna, tenta ponto e vírgula
                 uploaded_file.seek(0)
                 df = pd.read_csv(uploaded_file, sep=';')
         except:
@@ -165,9 +162,7 @@ if uploaded_file:
     else:
         df = pd.read_excel(uploaded_file)
 
-    # Limpa nomes de colunas
     df.columns = [str(c).strip() for c in df.columns]
-
     st.write("Colunas detectadas:", df.columns.tolist())  
 
     # 2. Seleção de colunas
@@ -175,14 +170,12 @@ if uploaded_file:
     col_data = st.selectbox("Selecione a coluna de Data", df.columns, key="col_data")
     col_target = st.selectbox("Selecione a coluna Numérica", df.columns, key="col_target")
 
-    # Converte datas, valores inválidos viram NaT
     df[col_data] = pd.to_datetime(df[col_data], errors='coerce')
     n_invalid = df[col_data].isna().sum()
     if n_invalid > 0:
         st.warning(f"{n_invalid} datas inválidas foram encontradas e serão removidas")
         df = df.dropna(subset=[col_data])
 
-    # Ordena pela data
     df = df.sort_values(col_data)
     ts = df[[col_data, col_target]].copy()
     ts.set_index(col_data, inplace=True)
@@ -190,18 +183,16 @@ if uploaded_file:
     st.success("✅ Dados carregados e validados com sucesso!")
     st.dataframe(ts.head())
 
-    # 3. Validação adicional
     df, error = validate_and_prepare(df, col_data, col_target)
     if error:
         st.error(error)
         st.stop()
 
-    # Gráfico simples
     st.line_chart(ts)
 
-    # -------------------------------
-    # Botão Fazer Previsão
-    # -------------------------------
+    # Placeholder para gráfico de previsão
+    chart_placeholder = st.empty()
+
     if st.button("Fazer Previsão"):
         n_forecast = 30
 
@@ -227,7 +218,7 @@ if uploaded_file:
             ts_reset['date_ordinal'] = ts_reset[col_data].map(pd.Timestamp.toordinal)
             X = ts_reset['date_ordinal'].values.reshape(-1,1)
             y = ts_reset[col_target].values
-            svr_model = SVR(kernel='rbf', C=100, gamma=000.1, epsilon=.1)
+            svr_model = SVR(kernel='rbf', C=100, gamma=0.1, epsilon=.1)
             svr_model.fit(X, y)
             future_dates = pd.date_range(ts.index[-1]+pd.Timedelta(days=1), periods=n_forecast)
             X_future = future_dates.map(pd.Timestamp.toordinal).values.reshape(-1,1)
@@ -268,10 +259,11 @@ if uploaded_file:
         })
 
         # Gráfico das previsões
-        plt.figure(figsize=(10,5))
-        plt.plot(ts.index, ts[col_target], label="Real")
-        plt.plot(forecast_dates, arima_pred, label="ARIMA")
-        plt.plot(forecast_dates, sarima_pred, label="SARIMA")
-        plt.plot(forecast_dates, svr_pred, label="SVR")
-        plt.legend()
-        st.pyplot(plt)
+        fig, ax = plt.subplots(figsize=(10,5))
+        ax.plot(ts.index, ts[col_target], label="Real")
+        ax.plot(forecast_dates, arima_pred, label="ARIMA")
+        ax.plot(forecast_dates, sarima_pred, label="SARIMA")
+        ax.plot(forecast_dates, svr_pred, label="SVR")
+        ax.legend()
+        chart_placeholder.pyplot(fig)
+        plt.close(fig) 
