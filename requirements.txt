@@ -3,6 +3,7 @@ streamlit
 pandas
 numpy
 matplotlib
-statsmodels
 scikit-learn
+statsmodels
 pmdarima
+requests
