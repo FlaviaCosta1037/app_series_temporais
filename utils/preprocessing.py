@@ -15,25 +15,21 @@ def validate_and_prepare(df, col_data, col_target, date_format=None):
         if col not in df.columns:
             return None, f"⚠️ Sua base precisa ter as colunas: {required_cols}, mas as colunas são: {list(df.columns)}"
 
-    # Converte a coluna de data
     try:
         if date_format:
             df[col_data] = pd.to_datetime(df[col_data], format=date_format, errors="coerce")
         else:
-            df[col_data] = pd.to_datetime(df[col_data], errors="coerce")  # sem infer_datetime_format
+            df[col_data] = pd.to_datetime(df[col_data], errors="coerce")
     except Exception as e:
         return None, f"Erro ao converter a coluna de data: {e}"
 
-    # Verifica datas inválidas
     if df[col_data].isna().any():
         return None, f"Algumas datas na coluna '{col_data}' são inválidas. Verifique o formato."
 
-    # Converte coluna target para numérico
     df[col_target] = pd.to_numeric(df[col_target], errors='coerce')
     if df[col_target].isna().any():
         return None, f"Alguns valores na coluna '{col_target}' não são numéricos."
 
-    # Ordena por data
     df = df.sort_values(col_data).reset_index(drop=True)
 
     return df, None
