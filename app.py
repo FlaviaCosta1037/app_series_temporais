@@ -16,7 +16,20 @@ from components.navbar import navbar
 from utils.ui import center_title
 
 st.set_page_config(page_title="Forecast App", layout="wide")
-navbar()
+
+# Configuração do Sidebar para aparecer somente após a tela de login
+if st.session_state.get("user") is None:
+    st.markdown(
+        """
+        <style>
+        /* Esconde o sidebar completamente */
+        [data-testid="stSidebar"] {display: none;}
+        /* Ajusta o conteúdo para ocupar toda a largura */
+        .css-1d391kg {margin-left: 0px;}
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
 
 # -------------------------------
 # CONTROLE DE LOGIN
@@ -238,8 +251,12 @@ if st.session_state["user"] is None:
 # -------------------------------
 # HOME
 # -------------------------------
-sidebar()
-    
+if st.session_state.get("user") is not None:
+    sidebar()
+else:
+    if "sidebar_hidden" not in st.session_state or not st.session_state["sidebar_hidden"]:
+        st.session_state["sidebar_hidden"] = True
+
 center_title("Análise de vendas")
 st.subheader("***Upload da Base de Dados***")
 uploaded_file = st.file_uploader("Carregue sua planilha (.csv ou .xlsx)", type=["csv", "xlsx"], key="upload_file")

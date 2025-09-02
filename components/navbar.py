@@ -21,7 +21,7 @@ def navbar():
         }
         </style>
         <div class="navbar">
-            <a href="?page=home">🏠 Home</a>
+            <a href="?page=Gráficos">📊 Gráficos</a>
             <a href="?page=relatorios">📊 Relatórios</a>
             <a href="?page=configuracoes">⚙️ Configurações</a>
         </div>
