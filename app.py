@@ -11,8 +11,12 @@ from sklearn.svm import SVR
 from sklearn.preprocessing import StandardScaler
 from services.auth import login, signup, login_google, logout, supabase
 from utils.preprocessing import validate_and_prepare
+from components.sidebar import sidebar
+from components.navbar import navbar
+from utils.ui import center_title
 
 st.set_page_config(page_title="Forecast App", layout="wide")
+navbar()
 
 # -------------------------------
 # CONTROLE DE LOGIN
@@ -234,13 +238,10 @@ if st.session_state["user"] is None:
 # -------------------------------
 # HOME
 # -------------------------------
-st.sidebar.write(f"👤 Usuário: {st.session_state['user'].email}")
-if st.sidebar.button("Sair", key="logout"):
-    logout()
-    st.session_state["user"] = None
-    st.rerun()
-
-st.header("Upload da Base de Dados")
+sidebar()
+    
+center_title("Análise de vendas")
+st.subheader("***Upload da Base de Dados***")
 uploaded_file = st.file_uploader("Carregue sua planilha (.csv ou .xlsx)", type=["csv", "xlsx"], key="upload_file")
 
 def read_uploaded_file(file, sheet_name=None):
