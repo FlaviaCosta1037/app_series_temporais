@@ -29,21 +29,6 @@ if st.session_state.get("user") is None:
         """,
         unsafe_allow_html=True
     )
-if st.session_state.get("user") is not None:
-    navbar()
-else:
-    st.markdown(
-        """
-        <style>
-        /* Esconde a navbar */
-        .navbar-container {
-            display: none;
-        }
-        </style>
-        """,
-        unsafe_allow_html=True
-    )
-
 # -------------------------------
 # CONTROLE DE LOGIN
 # -------------------------------
