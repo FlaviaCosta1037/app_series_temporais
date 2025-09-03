@@ -17,7 +17,6 @@ from utils.ui import center_title
 
 st.set_page_config(page_title="Forecast App", layout="wide")
 
-# Configuração do Sidebar para aparecer somente após a tela de login
 if st.session_state.get("user") is None:
     st.markdown(
         """
@@ -26,6 +25,20 @@ if st.session_state.get("user") is None:
         [data-testid="stSidebar"] {display: none;}
         /* Ajusta o conteúdo para ocupar toda a largura */
         .css-1d391kg {margin-left: 0px;}
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+if st.session_state.get("user") is not None:
+    navbar()
+else:
+    st.markdown(
+        """
+        <style>
+        /* Esconde a navbar */
+        .navbar-container {
+            display: none;
+        }
         </style>
         """,
         unsafe_allow_html=True
