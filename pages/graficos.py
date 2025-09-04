@@ -2,8 +2,7 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib.dates as mdates
+import plotly.express as px
 from pandas.api.types import is_numeric_dtype, is_datetime64_any_dtype
 
 from services.auth import logout
@@ -62,6 +61,14 @@ def build_dynamic_filters(df: pd.DataFrame) -> pd.DataFrame:
                 end = pd.to_datetime(end) + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)
                 filtered = filtered[(pd.to_datetime(filtered[col]) >= start) & (pd.to_datetime(filtered[col]) <= end)]
             elif is_numeric_dtype(col_data):
+                st.markdown(f"**{col}**")
+                filtro_tipo = st.radio(
+                    f"Tipo de valor em {col}",
+                    ["Todos", "Positivos", "Negativos", "Zero"],
+                    key=f"filter_sign_{col}",
+                    horizontal=True
+                )
+
                 min_v = float(np.nanmin(col_data))
                 max_v = float(np.nanmax(col_data))
                 sel_min, sel_max = st.slider(
@@ -70,7 +77,18 @@ def build_dynamic_filters(df: pd.DataFrame) -> pd.DataFrame:
                     value=(min_v, max_v),
                     key=f"filter_num_{col}"
                 )
-                filtered = filtered[(filtered[col] >= sel_min) & (filtered[col] <= sel_max)]
+
+                df_num = filtered[(filtered[col] >= sel_min) & (filtered[col] <= sel_max)]
+
+                if filtro_tipo == "Positivos":
+                    df_num = df_num[df_num[col] > 0]
+                elif filtro_tipo == "Negativos":
+                    df_num = df_num[df_num[col] < 0]
+                elif filtro_tipo == "Zero":
+                    df_num = df_num[df_num[col] == 0]
+
+                filtered = df_num
+
             else:
                 uniques = sorted([str(u) for u in pd.Series(col_data).dropna().unique().tolist()])
                 if len(uniques) <= 50:
@@ -234,6 +252,8 @@ if uploaded_file is not None:
     st.dataframe(ts.head())
     st.line_chart(ts)
 
+import seaborn as sns
+
 # -------------------------------
 # Gráficos Dinâmicos
 # -------------------------------
@@ -247,34 +267,25 @@ if uploaded_file is not None and not df_filtered.empty:
     if numeric_cols:
         y_col = st.selectbox("Selecione a coluna Numérica para Análise", numeric_cols)
 
-        if date_cols:
-            x_date_col = st.selectbox("Selecione a coluna de Data", date_cols)
-            fig, ax = plt.subplots(figsize=(12, 6))
-            ax.plot(df_filtered[x_date_col], df_filtered[y_col], color="#007acc", linewidth=2.5, marker="o")
-            ax.set_title(f"Evolução Temporal de {y_col}", fontsize=16, fontweight="bold")
-            ax.set_ylabel(y_col, fontsize=12)
-            ax.set_xlabel(x_date_col, fontsize=12)
-            ax.grid(True, linestyle="--", alpha=0.3)
-            ax.xaxis.set_major_formatter(mdates.DateFormatter("%b %Y"))
-            plt.xticks(rotation=45)
-            st.pyplot(fig)
+        # 🔹 OPÇÃO 2: GRÁFICOS COM PLOTLY (sofisticados e interativos)
+        # -------------------------------------------------------------------
+        st.markdown("### 🌟 Visualizações com Plotly")
 
-        fig, ax = plt.subplots(figsize=(12, 6))
-        ax.hist(df_filtered[y_col].dropna(), bins=30, color="#009688", edgecolor="black", alpha=0.7)
-        ax.set_title(f"Distribuição de {y_col}", fontsize=16, fontweight="bold")
-        ax.set_xlabel(y_col, fontsize=12)
-        ax.set_ylabel("Frequência", fontsize=12)
-        ax.grid(True, linestyle="--", alpha=0.3)
-        st.pyplot(fig)
+        if not df_valid.empty:
+            fig = px.line(df_valid, x=col_data, y=col_target, markers=True,
+                          title=f"Evolução Temporal de {col_target}")
+            st.plotly_chart(fig, use_container_width=True)
+
+        fig = px.histogram(df_filtered, x=y_col, nbins=30,
+                           title=f"Distribuição de {y_col}")
+        st.plotly_chart(fig, use_container_width=True)
 
         if cat_cols:
-            cat_col = st.selectbox("Selecione a coluna categórica para comparar", cat_cols)
-            fig, ax = plt.subplots(figsize=(12, 6))
-            df_filtered.boxplot(column=y_col, by=cat_col, ax=ax, grid=False)
-            ax.set_title(f"{y_col} por {cat_col}")
-            ax.set_xlabel(cat_col, fontsize=12)
-            ax.set_ylabel(y_col, fontsize=12)
-            plt.suptitle("")
-            st.pyplot(fig)
+            cat_col_plotly = st.selectbox("Selecione a coluna categórica para comparar (Plotly)", cat_cols)
+            fig = px.box(df_filtered, x=cat_col_plotly, y=y_col, points="all",
+                         title=f"{y_col} por {cat_col_plotly}")
+            st.plotly_chart(fig, use_container_width=True)
+
     else:
         st.info("Nenhuma coluna numérica disponível para gerar gráficos.")
+
