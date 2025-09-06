@@ -270,7 +270,6 @@ def read_uploaded_file(file, sheet_name=None):
         return None
 
 if uploaded_file is not None:
-    # Se for Excel, listar as abas primeiro
     if uploaded_file.name.endswith(".xlsx"):
         xls = pd.ExcelFile(uploaded_file)
         sheet_name = st.selectbox("Selecione a aba da planilha", xls.sheet_names)
@@ -294,6 +293,8 @@ if uploaded_file is not None:
         )
 
         col_types = {}
+        col_configs = {}
+
         for col in cols_to_config:
             col_type = st.selectbox(
                 f"Selecione o tipo da coluna '{col}'",
@@ -301,6 +302,22 @@ if uploaded_file is not None:
                 key=f"type_{col}"
             )
             col_types[col] = col_type
+
+            if col_type == "Numérica":
+                num_filter = st.radio(
+                    f"Como deseja tratar os valores numéricos de '{col}'?",
+                    ["Todos", "Apenas Positivos", "Apenas Negativos"],
+                    key=f"numfilter_{col}",
+                    horizontal=True
+                )
+                col_configs[col] = {"num_filter": num_filter}
+
+        # aplica os filtros escolhidos
+        for col, cfg in col_configs.items():
+            if cfg["num_filter"] == "Apenas Positivos":
+                df = df[df[col] > 0]
+            elif cfg["num_filter"] == "Apenas Negativos":
+                df = df[df[col] < 0]
 
         # -------------------------------
         # Filtro dinâmico
