@@ -1,11 +1,9 @@
-# app.py
 import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.express as px
 from pandas.api.types import is_numeric_dtype, is_datetime64_any_dtype
 
-from services.auth import logout
 from utils.preprocessing import validate_and_prepare
 from components.sidebar import sidebar
 from utils.ui import center_title
@@ -251,8 +249,6 @@ if uploaded_file is not None:
     st.success("✅ Dados preparados com sucesso!")
     st.dataframe(ts.head())
     st.line_chart(ts)
-
-import seaborn as sns
 
 # -------------------------------
 # Gráficos Dinâmicos

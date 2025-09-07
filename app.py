@@ -293,8 +293,6 @@ if uploaded_file is not None:
         )
 
         col_types = {}
-        col_configs = {}
-
         for col in cols_to_config:
             col_type = st.selectbox(
                 f"Selecione o tipo da coluna '{col}'",
@@ -302,22 +300,6 @@ if uploaded_file is not None:
                 key=f"type_{col}"
             )
             col_types[col] = col_type
-
-            if col_type == "Numérica":
-                num_filter = st.radio(
-                    f"Como deseja tratar os valores numéricos de '{col}'?",
-                    ["Todos", "Apenas Positivos", "Apenas Negativos"],
-                    key=f"numfilter_{col}",
-                    horizontal=True
-                )
-                col_configs[col] = {"num_filter": num_filter}
-
-        # aplica os filtros escolhidos
-        for col, cfg in col_configs.items():
-            if cfg["num_filter"] == "Apenas Positivos":
-                df = df[df[col] > 0]
-            elif cfg["num_filter"] == "Apenas Negativos":
-                df = df[df[col] < 0]
 
         # -------------------------------
         # Filtro dinâmico
@@ -349,13 +331,27 @@ if uploaded_file is not None:
                 # Range numérico
                 min_v = float(np.nanmin(col_data))
                 max_v = float(np.nanmax(col_data))
-                sel_min, sel_max = st.slider(
-                    f"Intervalo numérico — {col}",
-                    min_value=min_v, max_value=max_v,
-                    value=(min_v, max_v),
-                    key=f"filter_num_{col}"
+                # Escolha de intervalo
+                filter_type = st.selectbox(
+                    f"Filtrar valores de {col}:", 
+                    ["Todos", "Somente positivos", "Somente negativos"], 
+                    index=0,
+                    key=f"filter_num_type_{col}"
                 )
-                df = df[(df[col] >= sel_min) & (df[col] <= sel_max)]
+                if filter_type == "Somente positivos":
+                    df = df[df[col] > 0]
+                elif filter_type == "Somente negativos":
+                    df = df[df[col] < 0]
+                else:
+                    sel_min, sel_max = st.slider(
+                        f"Intervalo numérico — {col}",
+                        min_value=float(np.nanmin(col_data)),
+                        max_value=float(np.nanmax(col_data)),
+                        value=(float(np.nanmin(col_data)), float(np.nanmax(col_data))),
+                        key=f"filter_num_{col}"
+                    )
+                    df = df[(df[col] >= sel_min) & (df[col] <= sel_max)]
+
             else:
                 uniques = sorted([str(u) for u in pd.Series(col_data).dropna().unique().tolist()])
                 if len(uniques) <= 50:
@@ -459,91 +455,129 @@ if uploaded_file is not None:
 
     if st.button("Fazer Previsão"):
         series = ts[col_target].astype(float)
+        n_total = len(series)
+        n_train = int(n_total * 0.6)
+        n_val   = int(n_total * 0.2)
+        n_test  = n_total - n_train - n_val
 
-        # ARIMA (simples)
+        train = series.iloc[:n_train]
+        val   = series.iloc[n_train:n_train+n_val]
+        test  = series.iloc[n_train+n_val:]
+
+        st.write(f"Divisão: Treino={len(train)}, Validação={len(val)}, Teste={len(test)}")
+
+        # -----------------------------
+        # ARIMA
+        # -----------------------------
         try:
-            arima_order = (1, 1, 1)
-            arima_model = ARIMA(series, order=arima_order)
+            arima_order = (4, 1, 4)
+            arima_model = ARIMA(train, order=arima_order)
             arima_fit = arima_model.fit()
-            arima_pred = arima_fit.forecast(steps=int(n_forecast))
+            arima_val_pred = arima_fit.forecast(steps=len(val))
+            arima_test_pred = arima_fit.forecast(steps=len(val)+len(test))[-len(test):]
+            # Próximo período
+            arima_next = arima_fit.forecast(steps=1)[-1]
         except Exception as e:
             st.warning(f"ARIMA falhou: {e}")
-            arima_pred = np.zeros(int(n_forecast))
+            arima_val_pred = arima_test_pred = np.zeros(len(val))
+            arima_next = 0
 
-        # SARIMA (usa sazonalidade se saz > 0)
+        # -----------------------------
+        # SARIMA
+        # -----------------------------
         try:
             if saz > 0:
-                sarima_model = SARIMAX(series, order=(1, 1, 1), seasonal_order=(1, 1, 1, int(saz)), enforce_stationarity=False, enforce_invertibility=False)
+                sarima_model = SARIMAX(train, order=(2,1,2), seasonal_order=(2,1,2,int(saz)),
+                                    enforce_stationarity=False, enforce_invertibility=False)
             else:
-                sarima_model = SARIMAX(series, order=(1, 1, 1), enforce_stationarity=False, enforce_invertibility=False)
+                sarima_model = SARIMAX(train, order=(2,1,2),
+                                    enforce_stationarity=False, enforce_invertibility=False)
             sarima_fit = sarima_model.fit(disp=False)
-            sarima_pred = sarima_fit.forecast(steps=int(n_forecast))
+            sarima_val_pred = sarima_fit.forecast(steps=len(val))
+            sarima_test_pred = sarima_fit.forecast(steps=len(val)+len(test))[-len(test):]
+            sarima_next = sarima_fit.forecast(steps=1)[-1]
         except Exception as e:
             st.warning(f"SARIMA falhou: {e}")
-            sarima_pred = np.zeros(int(n_forecast))
+            sarima_val_pred = sarima_test_pred = np.zeros(len(val))
+            sarima_next = 0
 
-        # SVR (com padronização)
+        # -----------------------------
+        # SVR
+        # -----------------------------
         try:
             ts_reset = ts.reset_index()
             ts_reset["date_ordinal"] = ts_reset[col_data].map(pd.Timestamp.toordinal)
-            X = ts_reset["date_ordinal"].values.reshape(-1, 1)
-            y = ts_reset[col_target].astype(float).values.reshape(-1, 1)
+            X = ts_reset["date_ordinal"].values.reshape(-1,1)
+            y = ts_reset[col_target].astype(float).values.reshape(-1,1)
             x_scaler = StandardScaler()
             y_scaler = StandardScaler()
             Xs = x_scaler.fit_transform(X)
             ys = y_scaler.fit_transform(y).ravel()
 
-            svr_model = SVR(kernel="rbf", C=100, gamma="scale", epsilon=0.1)
-            svr_model.fit(Xs, ys)
+            svr_model = SVR(kernel="rbf", C=100, gamma=0.001, epsilon=0.1)
+            svr_model.fit(Xs[:n_train], ys[:n_train])
 
-            future_index = make_future_index(ts.index[-1], int(n_forecast), freq)
+            # Validação e teste
+            X_val_test = Xs[n_train:]
+            svr_pred_scaled = svr_model.predict(X_val_test)
+            svr_val_pred = y_scaler.inverse_transform(svr_pred_scaled[:len(val)].reshape(-1,1)).ravel()
+            svr_test_pred = y_scaler.inverse_transform(svr_pred_scaled[len(val):].reshape(-1,1)).ravel()
+
+            # Próximo período
+            future_index = make_future_index(ts.index[-1], 1, freq)
             X_future = future_index.map(pd.Timestamp.toordinal).values.reshape(-1, 1)
             Xf = x_scaler.transform(X_future)
-            svr_pred_scaled = svr_model.predict(Xf)
-            svr_pred = y_scaler.inverse_transform(svr_pred_scaled.reshape(-1, 1)).ravel()
+            svr_next = y_scaler.inverse_transform(svr_model.predict(Xf).reshape(-1,1)).ravel()[0]
         except Exception as e:
             st.warning(f"SVR falhou: {e}")
-            future_index = make_future_index(ts.index[-1], int(n_forecast), freq)
-            svr_pred = np.zeros(int(n_forecast))
+            svr_val_pred = svr_test_pred = np.zeros(len(val))
+            svr_next = 0
 
-        # Métricas (usando últimos n pontos)
-        y_true = series.values[-int(n_forecast):] if len(series) >= int(n_forecast) else series.values
-        m_arima = safe_mape(y_true, np.array(arima_pred)[:len(y_true)])
-        m_sarima = safe_mape(y_true, np.array(sarima_pred)[:len(y_true)])
-        m_svr = safe_mape(y_true, np.array(svr_pred)[:len(y_true)])
+        # -----------------------------
+        # Métricas sobre Validação
+        # -----------------------------
+        m_arima = safe_mape(val.values, arima_val_pred)
+        m_sarima = safe_mape(val.values, sarima_val_pred)
+        m_svr = safe_mape(val.values, svr_val_pred)
 
-        st.subheader("MAPE (%) de cada modelo")
+        st.subheader("MAPE (%) sobre Validação")
         st.table({
             "Modelo": ["ARIMA", "SARIMA", "SVR"],
-            "MAPE (%)": [None if pd.isna(m_arima) else round(m_arima, 2),
-                         None if pd.isna(m_sarima) else round(m_sarima, 2),
-                         None if pd.isna(m_svr) else round(m_svr, 2)]
+            "MAPE (%)": [round(m_arima,2), round(m_sarima,2), round(m_svr,2)]
         })
 
-        # Previsões em DataFrame
-        forecast_df = pd.DataFrame({
-            col_data: make_future_index(ts.index[-1], int(n_forecast), freq),
-            "ARIMA": np.array(arima_pred),
-            "SARIMA": np.array(sarima_pred),
-            "SVR":   np.array(svr_pred)
-        })
-        st.subheader(f"Previsão para os próximos {int(n_forecast)} períodos ({freq})")
-        st.dataframe(forecast_df)
+        # -----------------------------
+        # Gráfico Evolução
+        # -----------------------------
+        fig, ax = plt.subplots(figsize=(10,5))
+        ax.plot(series.index, series.values, label="Real", color="black")
+        ax.plot(val.index, arima_val_pred, label="ARIMA (Val)", linestyle="--")
+        ax.plot(val.index, sarima_val_pred, label="SARIMA (Val)", linestyle="--")
+        ax.plot(val.index, svr_val_pred, label="SVR (Val)", linestyle="--")
 
-        # Totais do próximo período agregado (se fizer sentido somar)
-        st.subheader("Total previsto no horizonte")
-        st.write({
-            "ARIMA": float(np.sum(arima_pred)),
-            "SARIMA": float(np.sum(sarima_pred)),
-            "SVR": float(np.sum(svr_pred)),
-        })
+        ax.plot(test.index, arima_test_pred, label="ARIMA (Teste)", linestyle=":")
+        ax.plot(test.index, sarima_test_pred, label="SARIMA (Teste)", linestyle=":")
+        ax.plot(test.index, svr_test_pred, label="SVR (Teste)", linestyle=":")
 
-        # Gráfico
-        fig, ax = plt.subplots(figsize=(10, 5))
-        ax.plot(ts.index, series.values, label="Real")
-        ax.plot(forecast_df[col_data], forecast_df["ARIMA"], label="ARIMA")
-        ax.plot(forecast_df[col_data], forecast_df["SARIMA"], label="SARIMA")
-        ax.plot(forecast_df[col_data], forecast_df["SVR"],   label="SVR")
+        # Próximo período
+        ax.scatter(make_future_index(ts.index[-1], 1, freq), [arima_next], color="blue", label="ARIMA Próx.", zorder=5)
+        ax.scatter(make_future_index(ts.index[-1], 1, freq), [sarima_next], color="orange", label="SARIMA Próx.", zorder=5)
+        ax.scatter(make_future_index(ts.index[-1], 1, freq), [svr_next], color="green", label="SVR Próx.", zorder=5)
+
         ax.legend()
         chart_placeholder.pyplot(fig)
         plt.close(fig)
+        
+        # Cria DataFrame de previsão consolidado
+        forecast_table = pd.DataFrame({
+            "Data": list(val.index) + list(test.index) + list(make_future_index(ts.index[-1],1,freq)),
+            "Tipo": ["Validação"]*len(val) + ["Teste"]*len(test) + ["Próximo Período"],
+            "ARIMA": list(arima_val_pred) + list(arima_test_pred) + [arima_next],
+            "SARIMA": list(sarima_val_pred) + list(sarima_test_pred) + [sarima_next],
+            "SVR": list(svr_val_pred) + list(svr_test_pred) + [svr_next]
+        })
+
+        st.subheader("Previsões por Modelo")
+        st.dataframe(forecast_table)
+
+
