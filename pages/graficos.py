@@ -3,51 +3,29 @@ import pandas as pd
 import numpy as np
 import plotly.express as px
 from pandas.api.types import is_numeric_dtype, is_datetime64_any_dtype
-
 from utils.preprocessing import validate_and_prepare
-from components.sidebar import sidebar
-from utils.ui import center_title
-
-st.set_page_config(page_title="Forecast App", layout="wide")
-
-# Esconde sidebar antes do login
-if st.session_state.get("user") is None:
-    st.markdown(
-        """
-        <style>
-        [data-testid="stSidebar"] {display: none;}
-        .css-1d391kg {margin-left: 0px;}
-        </style>
-        """,
-        unsafe_allow_html=True
-    )
-
-if st.session_state.get("user") is not None:
-    sidebar()
-else:
-    if "sidebar_hidden" not in st.session_state or not st.session_state["sidebar_hidden"]:
-        st.session_state["sidebar_hidden"] = True
 
 # -------------------------------
-# FUNÇÕES AUXILIARES
-# -------------------------------        
+# FUNÇÃO PARA FILTROS DINÂMICOS
+# -------------------------------
 def build_dynamic_filters(df: pd.DataFrame) -> pd.DataFrame:
-    """Cria UI para filtros dinâmicos por tipo de coluna e aplica sobre o DF."""
     st.markdown("#### Filtros avançados (opcional)")
     st.caption("Aplique filtros em qualquer coluna antes da modelagem.")
 
     filtered = df.copy()
     with st.expander("Abrir filtros", expanded=False):
-        # O usuário escolhe quais colunas quer filtrar (para não poluir a UI).
         cols_to_filter = st.multiselect(
             "Escolha as colunas que deseja filtrar",
             options=list(filtered.columns),
-            default=[]
+            default=[],
+            key="cols_to_filter"
         )
+
         for col in cols_to_filter:
             col_data = filtered[col]
+
+            # Filtro para datas
             if is_datetime64_any_dtype(col_data):
-                # Intervalo de datas
                 min_d = pd.to_datetime(col_data.min())
                 max_d = pd.to_datetime(col_data.max())
                 start, end = st.date_input(
@@ -58,36 +36,9 @@ def build_dynamic_filters(df: pd.DataFrame) -> pd.DataFrame:
                 start = pd.to_datetime(start)
                 end = pd.to_datetime(end) + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)
                 filtered = filtered[(pd.to_datetime(filtered[col]) >= start) & (pd.to_datetime(filtered[col]) <= end)]
-            elif is_numeric_dtype(col_data):
-                st.markdown(f"**{col}**")
-                filtro_tipo = st.radio(
-                    f"Tipo de valor em {col}",
-                    ["Todos", "Positivos", "Negativos", "Zero"],
-                    key=f"filter_sign_{col}",
-                    horizontal=True
-                )
 
-                min_v = float(np.nanmin(col_data))
-                max_v = float(np.nanmax(col_data))
-                sel_min, sel_max = st.slider(
-                    f"Intervalo numérico — {col}",
-                    min_value=min_v, max_value=max_v,
-                    value=(min_v, max_v),
-                    key=f"filter_num_{col}"
-                )
-
-                df_num = filtered[(filtered[col] >= sel_min) & (filtered[col] <= sel_max)]
-
-                if filtro_tipo == "Positivos":
-                    df_num = df_num[df_num[col] > 0]
-                elif filtro_tipo == "Negativos":
-                    df_num = df_num[df_num[col] < 0]
-                elif filtro_tipo == "Zero":
-                    df_num = df_num[df_num[col] == 0]
-
-                filtered = df_num
-
-            else:
+            # Filtro para valores categóricos
+            elif not is_numeric_dtype(col_data):
                 uniques = sorted([str(u) for u in pd.Series(col_data).dropna().unique().tolist()])
                 if len(uniques) <= 50:
                     selected = st.multiselect(
@@ -106,182 +57,234 @@ def build_dynamic_filters(df: pd.DataFrame) -> pd.DataFrame:
                     )
                     if txt:
                         filtered = filtered[filtered[col].astype(str).str.contains(txt, case=False, na=False)]
+
     return filtered
 
 # -------------------------------
-# Título
+# FUNÇÃO DE GRÁFICOS EXPLORATÓRIOS AGREGADOS
 # -------------------------------
-center_title("📊 Análise Exploratória")
-st.subheader("***Upload da Base de Dados***")
-df = pd.DataFrame()
+def exploratory_plots_aggregated(df_ready: pd.DataFrame, y_col, cat_col=None, chart_types=None):
+    if not chart_types or y_col == "":
+        st.info("Selecione a coluna numérica e o(s) tipo(s) de gráfico.")
+        return
 
+    for chart_type in chart_types:
+        st.markdown(f"### Gráfico: {chart_type}")
+        try:
+            if chart_type == "Linha":
+                fig = px.line(df_ready, x=df_ready.index if df_ready.index.dtype.kind in "M" else df_ready.index,
+                              y=y_col, markers=True, title=f"Linha: {y_col}")
+                st.plotly_chart(fig, use_container_width=True)
+
+            elif chart_type == "Histograma":
+                fig = px.histogram(df_ready, x=y_col,
+                                   color=cat_col if cat_col in df_ready.columns else None,
+                                   nbins=30,
+                                   title=f"Histograma: {y_col}" + (f" por {cat_col}" if cat_col else ""))
+                st.plotly_chart(fig, use_container_width=True)
+
+            elif chart_type == "Box Plot":
+                if not cat_col or cat_col not in df_ready.columns:
+                    st.warning("Box plot requer uma coluna categórica válida para comparar.")
+                else:
+                    fig = px.box(df_ready, x=cat_col, y=y_col, points="all",
+                                 title=f"Box Plot: {y_col} por {cat_col}")
+                    st.plotly_chart(fig, use_container_width=True)
+
+            elif chart_type == "Violin Plot":
+                if not cat_col or cat_col not in df_ready.columns:
+                    st.warning("Violin plot requer uma coluna categórica válida para comparar.")
+                else:
+                    fig = px.violin(df_ready, x=cat_col, y=y_col, box=True, points="all",
+                                    title=f"Violin Plot: {y_col} por {cat_col}")
+                    st.plotly_chart(fig, use_container_width=True)
+
+            elif chart_type == "Scatter":
+                if not cat_col or cat_col not in df_ready.columns:
+                    st.warning("Scatter plot requer uma coluna categórica válida para comparar.")
+                else:
+                    fig = px.scatter(df_ready, x=cat_col, y=y_col, title=f"Scatter: {y_col} por {cat_col}")
+                    st.plotly_chart(fig, use_container_width=True)
+
+            elif chart_type == "Bar":
+                if not cat_col or cat_col not in df_ready.columns:
+                    st.warning("Bar plot requer uma coluna categórica válida para agrupar.")
+                else:
+                    agg_choice = st.radio("Agregação", ["sum", "mean"], horizontal=True, key=f"agg_{chart_type}")
+                    df_bar = df_ready.groupby(cat_col)[y_col].agg(agg_choice).reset_index()
+                    fig = px.bar(df_bar, x=cat_col, y=y_col,
+                                 title=f"Bar Plot ({agg_choice}) de {y_col} por {cat_col}")
+                    st.plotly_chart(fig, use_container_width=True)
+
+            elif chart_type == "Strip":
+                if not cat_col or cat_col not in df_ready.columns:
+                    st.warning("Strip plot requer uma coluna categórica válida para comparar.")
+                else:
+                    fig = px.strip(df_ready, x=cat_col, y=y_col,
+                                   title=f"Strip Plot: {y_col} por {cat_col}")
+                    st.plotly_chart(fig, use_container_width=True)
+        except Exception as e:
+            st.error(f"Erro ao gerar gráfico {chart_type}: {e}")
+
+# -------------------------------
+# MAIN APP
+# -------------------------------
+st.title("📈 Análise Gráfica de Séries Temporais")
+
+# -------------------------------
+# UPLOAD DE ARQUIVO
+# -------------------------------
 uploaded_file = st.file_uploader(
-    "Carregue sua planilha (.csv ou .xlsx)", 
-    type=["csv", "xlsx"], 
-    key="upload_file"
+    "Carregue seu arquivo CSV ou Excel",
+    type=["csv", "xlsx"],
+    key="file_uploader_main"
 )
 
-def read_uploaded_file(file, sheet_name=None):
-    """Lê arquivo CSV ou Excel (com suporte a múltiplas abas)."""
-    if file.name.endswith(".csv"):
-        return pd.read_csv(file, sep=None, engine="python")  # auto-detecta separador
-    elif file.name.endswith(".xlsx"):
-        return pd.read_excel(file, sheet_name=sheet_name)
+if uploaded_file:
+    if uploaded_file.name.endswith(".csv"):
+        df = pd.read_csv(uploaded_file)
     else:
-        st.error("Formato de arquivo não suportado.")
-        return None
-
-# -------------------------------
-# Processamento do arquivo
-# -------------------------------
-if uploaded_file is not None:
-    # Excel -> escolher aba
-    if uploaded_file.name.endswith(".xlsx"):
         xls = pd.ExcelFile(uploaded_file)
-        sheet_name = st.selectbox("Selecione a aba da planilha", xls.sheet_names)
-        df = read_uploaded_file(uploaded_file, sheet_name=sheet_name)
-    else:
-        df = read_uploaded_file(uploaded_file)
-
-    if df is not None:
-        # Converte colunas de texto para maiúsculo
-        for col in df.select_dtypes(include='object').columns:
-            df[col] = df[col].astype(str).str.upper()
-
-
-        st.write("### Prévia dos dados")
-        st.dataframe(df.head())
-
-        # -------------------------------
-        # Configuração das colunas
-        # -------------------------------
-        st.subheader("⚙️ Configuração das Colunas")
-
-        cols_to_config = st.multiselect(
-            "Selecione as colunas que deseja configurar",
-            options=df.columns.tolist(),
-            default=[]
+        sheet_name = st.selectbox(
+            "Selecione a aba da planilha",
+            xls.sheet_names,
+            key="sheet_select_main"
         )
+        df = pd.read_excel(uploaded_file, sheet_name=sheet_name)
 
-        col_types = {}
-        for col in cols_to_config:
-            col_type = st.selectbox(
-                f"Selecione o tipo da coluna '{col}'",
-                ["Numérica", "Categórica", "Data", "Ignorar"],
-                key=f"type_{col}"
-            )
-            col_types[col] = col_type
-
-        # -------------------------------
-        # Filtros dinâmicos
-        # -------------------------------
-        st.subheader("🔍 Filtrar Dados")
-        df_filtered = build_dynamic_filters(df)
-
-        st.write("### Dados Filtrados")
-        st.dataframe(df_filtered.head())
+    st.write("### Prévia dos dados")
+    st.dataframe(df.head())
 
     # -------------------------------
-    # Preparação dos Dados
+    # Configuração das colunas
     # -------------------------------
-    st.subheader("Preparação dos Dados")
+    st.markdown("#### Configure suas colunas")
+    numeric_cols = st.multiselect(
+        "Selecione as colunas numéricas",
+        options=list(df.columns),
+        default=[],
+        key="numeric_cols"
+    )
 
-    # (A) Definição de data
-    tem_coluna_data = st.radio("Sua base já possui uma coluna de data completa (dia/mês/ano)?", ["Sim", "Não"], index=0)
-    if tem_coluna_data == "Sim":
-        col_data = st.selectbox("Selecione a coluna de Data", df_filtered.columns, key="col_data")
-        # Permitir informar formato, opcional
-        date_fmt = st.text_input("Formato da data (opcional, ex: %d/%m/%Y)", value="", key="date_fmt")
-        if date_fmt.strip():
-            df_filtered[col_data] = pd.to_datetime(df_filtered[col_data], format=date_fmt.strip(), errors="coerce")
+    col_types = {}
+    for col in df.columns:
+        if col in numeric_cols:
+            col_types[col] = "Numérica"
         else:
-            df_filtered[col_data] = pd.to_datetime(df_filtered[col_data], errors="coerce")
-    else:
-        # Criar data a partir de ano/mês
-        col_ano = st.selectbox("Selecione a coluna de Ano", df_filtered.columns, key="col_ano")
-        col_mes = st.selectbox("Selecione a coluna de Mês", df_filtered.columns, key="col_mes")
-        df_filtered["__data"] = pd.to_datetime(
-            df_filtered[col_ano].astype(str) + "-" + df_filtered[col_mes].astype(str) + "-01",
-            errors="coerce"
+            col_types[col] = "Categórica"
+
+    # -------------------------------
+    # Seleção de coluna de data
+    # -------------------------------
+    has_date_col = st.radio(
+        "Você possui uma coluna de data completa?",
+        ["Sim", "Não"],
+        key="has_date_col"
+    )
+    if has_date_col == "Sim":
+        date_col = st.selectbox(
+            "Selecione a coluna de data",
+            options=df.columns,
+            index=0,
+            key="date_col"
         )
-        col_data = "__data"
-
-    # (B) Seleção da coluna alvo e tipo
-    col_target = st.selectbox("Selecione a coluna Numérica (variável alvo)", df_filtered.columns, key="col_target")
-    tipo_target = st.radio("Tipo da coluna alvo", ["Decimal", "Inteiro"], index=0, horizontal=True)
-
-    # Conversões gerais
-    for col in df_filtered.columns:
-        if is_numeric_dtype(df_filtered[col]):
-            df_filtered[col] = pd.to_numeric(df_filtered[col], errors='coerce')
-        elif is_datetime64_any_dtype(df_filtered[col]):
-            df_filtered[col] = pd.to_datetime(df_filtered[col], errors='coerce')
+        # Verifica o tipo da coluna
+        if np.issubdtype(df[date_col].dtype, np.datetime64):
+            df["data"] = df[date_col]
+        elif np.issubdtype(df[date_col].dtype, np.object_):
+            # Tenta converter string para datetime
+            df["data"] = pd.to_datetime(df[date_col], errors="coerce")
+        elif np.issubdtype(df[date_col].dtype, np.number):
+            # Caso seja número de Excel, converte para datetime
+            df["data"] = pd.to_datetime(df[date_col], origin='1899-12-30', unit='D', errors="coerce")
+        elif np.issubdtype(df[date_col].dtype, np.timedelta64):
+            # Se for timedelta, converte para datetime baseado em 1900-01-01
+            df["data"] = pd.to_datetime("1900-01-01") + df[date_col]
         else:
-            df_filtered[col] = df_filtered[col].astype(str).str.upper()
+            # Se for hora pura, adiciona uma data padrão
+            df["data"] = pd.to_datetime("2000-01-01 " + df[date_col].astype(str), errors="coerce")
 
-    # Remove linhas inválidas
-    df_filtered = df_filtered.dropna(subset=[col_data, col_target])
-
-    if tipo_target == "Inteiro":
-        df_filtered[col_target] = np.round(df_filtered[col_target]).astype(int)
-
-    # (C) Frequência/Agrupamento
-    st.markdown("##### Agregação temporal")
-    freq = st.selectbox("Escolha a frequência para agregar a série", ["D", "W", "M"], index=2, help="D=Diária, W=Semanal, M=Mensal")
-    agg_fn = st.selectbox("Como agregar a variável alvo nesse período?", ["sum", "mean", "median"], index=0)
-
-    df_ready = df_filtered[[col_data, col_target]].copy()
-    df_ready = df_ready.sort_values(col_data)
-    if agg_fn == "sum":
-        df_ready = df_ready.groupby(pd.Grouper(key=col_data, freq=freq))[col_target].sum().reset_index()
-    elif agg_fn == "mean":
-        df_ready = df_ready.groupby(pd.Grouper(key=col_data, freq=freq))[col_target].mean().reset_index()
-    else:
-        df_ready = df_ready.groupby(pd.Grouper(key=col_data, freq=freq))[col_target].median().reset_index()
-
-    # Validação final
-    df_valid, error = validate_and_prepare(df_ready.copy(), col_data, col_target)
-    if error:
-        st.error(error)
-        st.stop()
-
-    ts = df_valid.set_index(col_data)
-    st.success("✅ Dados preparados com sucesso!")
-    st.dataframe(ts.head())
-    st.line_chart(ts)
-
-# -------------------------------
-# Gráficos Dinâmicos
-# -------------------------------
-st.subheader("📈 Visualizações")
-
-if uploaded_file is not None and not df_filtered.empty:
-    numeric_cols = [col for col in df_filtered.columns if is_numeric_dtype(df_filtered[col])]
-    date_cols = [col for col in df_filtered.columns if is_datetime64_any_dtype(df_filtered[col])]
-    cat_cols = [col for col in df_filtered.columns if df_filtered[col].dtype == "object" or df_filtered[col].dtype.name == "category"]
-
-    if numeric_cols:
-        y_col = st.selectbox("Selecione a coluna Numérica para Análise", numeric_cols)
-
-        # 🔹 OPÇÃO 2: GRÁFICOS COM PLOTLY (sofisticados e interativos)
-        # -------------------------------------------------------------------
-        st.markdown("### 🌟 Visualizações com Plotly")
-
-        if not df_valid.empty:
-            fig = px.line(df_valid, x=col_data, y=col_target, markers=True,
-                          title=f"Evolução Temporal de {col_target}")
-            st.plotly_chart(fig, use_container_width=True)
-
-        fig = px.histogram(df_filtered, x=y_col, nbins=30,
-                           title=f"Distribuição de {y_col}")
-        st.plotly_chart(fig, use_container_width=True)
-
-        if cat_cols:
-            cat_col_plotly = st.selectbox("Selecione a coluna categórica para comparar (Plotly)", cat_cols)
-            fig = px.box(df_filtered, x=cat_col_plotly, y=y_col, points="all",
-                         title=f"{y_col} por {cat_col_plotly}")
-            st.plotly_chart(fig, use_container_width=True)
+        # Remove valores inválidos
+        df = df.dropna(subset=["data"])
 
     else:
-        st.info("Nenhuma coluna numérica disponível para gerar gráficos.")
+        year_col = st.selectbox(
+            "Selecione a coluna de ano",
+            options=df.columns,
+            index=0,
+            key="year_col"
+        )
+        month_col = st.selectbox(
+            "Selecione a coluna de mês",
+            options=df.columns,
+            index=0,
+            key="month_col"
+        )
+        df["data"] = pd.to_datetime(df[year_col].astype(str) + "-" + df[month_col].astype(str) + "-01")
 
+    # -------------------------------
+    # Filtros dinâmicos
+    # -------------------------------
+    df_filtered = build_dynamic_filters(df)
+
+    # -------------------------------
+    # Inicializando session_state
+    # -------------------------------
+    for key in ["y_col", "cat_col", "chart_types", "apply"]:
+        if key not in st.session_state:
+            st.session_state[key] = "" if key in ["y_col", "cat_col"] else [] if key == "chart_types" else False
+
+    # Botão para atualizar gráficos
+    if st.button("Atualizar gráficos com filtros"):
+        st.session_state.apply = True
+
+    # -------------------------------
+    # Apenas processa se o botão for clicado
+    # -------------------------------
+    if st.session_state.apply:
+        filtered_df_ready = df_filtered.copy()
+
+        numeric_cols_filtered = [c for c in filtered_df_ready.columns if is_numeric_dtype(filtered_df_ready[c])]
+        cat_cols_filtered = [c for c in filtered_df_ready.columns if filtered_df_ready[c].dtype == "object"
+                             or filtered_df_ready[c].dtype.name == "category"]
+
+        # Coluna numérica
+        y_col = st.selectbox(
+            "Selecione a coluna Numérica para análise",
+            options=[""] + numeric_cols_filtered,
+            index=0,
+            key="y_col"
+        )
+
+        # Coluna categórica
+        valid_cat_cols = [c for c in cat_cols_filtered if c in filtered_df_ready.columns]
+        cat_col_val = st.selectbox(
+            "Selecione a coluna categórica (opcional)",
+            options=[""] + valid_cat_cols,
+            index=0,
+            key="cat_col"
+        )
+        cat_col = cat_col_val if cat_col_val != "" else None
+
+        # Tipos de gráfico
+        chart_types = st.multiselect(
+            "Escolha os tipos de gráfico",
+            ["Linha", "Histograma", "Box Plot", "Violin Plot", "Scatter", "Bar", "Strip"],
+            default=[],
+            key="chart_types"
+        )
+
+        # -------------------------------
+        # Séries temporais
+        # -------------------------------
+        if "data" in filtered_df_ready.columns:
+            filtered_df_ready = filtered_df_ready.sort_values("data")
+            filtered_df_ready = filtered_df_ready.set_index("data")
+
+        # Geração de gráficos
+        exploratory_plots_aggregated(
+            filtered_df_ready,
+            y_col=y_col,
+            cat_col=cat_col,
+            chart_types=chart_types
+        )
